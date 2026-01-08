@@ -1,4 +1,4 @@
 streamlit
 pandas
-dataframe-image
-openpyxl
+matplotlib
+koreanize-matplotlib
