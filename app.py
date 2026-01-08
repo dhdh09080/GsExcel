@@ -8,24 +8,18 @@ import os
 st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
 
 # -----------------------------------------------------------
-# [중요] 한글 폰트 설정 (서버에 폰트가 없을 경우 자동 다운로드)
+# [폰트 설정] 서버에 폰트가 없으면 자동으로 다운로드해서 적용
 # -----------------------------------------------------------
 @st.cache_resource
 def set_korean_font():
-    # 나눔고딕 폰트 파일명
     font_file = "NanumGothic.ttf"
-    
-    # 폰트 파일이 없으면 구글 폰트 저장소에서 다운로드
     if not os.path.exists(font_file):
         import urllib.request
         url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
         urllib.request.urlretrieve(url, font_file)
-    
-    # 폰트 등록 및 설정
     fm.fontManager.addfont(font_file)
     plt.rc('font', family='NanumGothic')
 
-# 폰트 설정 실행
 set_korean_font()
 # -----------------------------------------------------------
 
@@ -61,11 +55,9 @@ def create_table_image(df):
     rows, cols = df.shape
     fig_height = rows * 0.8 + 2
     
-    # 캔버스 생성
     fig, ax = plt.subplots(figsize=(22, fig_height))
     ax.axis('off')
     
-    # 표 그리기
     table = ax.table(
         cellText=df.values,
         colLabels=df.columns,
@@ -87,7 +79,8 @@ def create_table_image(df):
         if col == 10 and row > 0: 
             cell.set_text_props(ha='left')
             
-    plt.title("■ 금일 영하 12도 이하 현장 리스트", fontsize=25, weight='bold', loc='left', pad=20)
+    # [수정된 부분] loc='left' -> loc='center'로 변경
+    plt.title("■ 금일 영하 12도 이하 현장 리스트", fontsize=25, weight='bold', loc='center', pad=20)
     
     return fig
 
