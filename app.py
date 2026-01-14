@@ -27,8 +27,8 @@ set_korean_font()
 st.title("🏗️ 현장 보고용 이미지 생성기")
 st.markdown("""
 **[사용법]**
-1. 노션이나 엑셀 데이터를 복사(`Ctrl+C`)하여 아래 표에 붙여넣기(`Ctrl+V`)하세요.
-2. **[📸 보고용 이미지 생성]** 버튼을 누르면 **이미지**와 **요약 텍스트**가 생성됩니다.
+1. 엑셀 데이터를 복사(`Ctrl+C`)하여 아래 표에 붙여넣기(`Ctrl+V`)하세요.
+2. **[📸 보고용 이미지 생성]** 버튼을 누르면 이미지와 **카톡용 요약 텍스트**가 생성됩니다.
 """)
 
 # 2. 초기 데이터 및 컬럼 설정
@@ -50,13 +50,16 @@ edited_df = st.data_editor(
     height=300
 )
 
-# 4. 표를 그림으로 그려주는 함수 (텍스트 래핑 포함)
+# 4. 표 이미지 생성 함수
 def create_table_image(df):
     wrap_width = 18 
     formatted_data = []
     row_lines = []
     
-    for idx, row in df.iterrows():
+    # 원본 데이터 보존을 위해 복사본 사용
+    plot_df = df.copy()
+    
+    for idx, row in plot_df.iterrows():
         row_data = list(row.values)
         action_item = str(row_data[10]) # 조치 사항 컬럼
         
@@ -80,7 +83,7 @@ def create_table_image(df):
     
     table = ax.table(
         cellText=formatted_data,
-        colLabels=df.columns,
+        colLabels=plot_df.columns,
         cellLoc='center',
         loc='center',
         colWidths=[0.1, 0.05, 0.08, 0.25, 0.06, 0.08, 0.1, 0.08, 0.1, 0.1, 0.3] 
@@ -109,27 +112,37 @@ def create_table_image(df):
     
     return fig
 
-# [추가됨] 5. 텍스트 요약 생성 함수
+# [수정됨] 5. 카카오톡 스타일 텍스트 요약 생성 함수
 def generate_text_summary(df):
-    # 날짜가 있으면 첫 번째 행의 날짜를 가져오고, 없으면 오늘 날짜
-    try:
-        report_date = df.iloc[0]['날짜']
-    except:
-        report_date = "금일"
+    # 1. 제목 및 현장 리스트 구성
+    count = len(df)
+    # 현장명 리스트를 콤마로 연결 (예: 공릉, 중계, 이천자이...)
+    site_names = ", ".join(df['현장명'].astype(str).tolist())
 
-    summary = f"📋 [{report_date} 혹한기 현장 점검 보고]\n\n"
-    summary += f"■ 모니터링 대상: 총 {len(df)}개 현장\n"
-    summary += "■ 주요 조치 사항:\n"
-    
-    for idx, row in df.iterrows():
-        site_name = row['현장명']
-        temp = row['최저 기온']
-        # 텍스트 보고에서는 줄바꿈 문자를 공백으로 변경하여 한 줄로 표시
-        action = str(row['조치 사항']).replace('\n', ' ')
-        
-        summary += f"- {site_name} ({temp}): {action}\n"
-    
-    summary += "\n이상입니다."
+    summary = "[보고 한파(영하12도) 대상 현장]\n"
+    summary += f"- 영하 12도 {count}개 현장이며,\n"
+    summary += f"  : {site_names}\n\n"
+
+    # 2. 조치 사항 구성 (내용이 같은 현장끼리 묶기)
+    # 조치 사항의 줄바꿈 문자는 공백으로 치환하여 한 줄로 만듦
+    # unique()를 사용하여 중복된 조치사항을 제거하고 확인
+    unique_actions = df['조치 사항'].astype(str).unique()
+
+    if len(unique_actions) == 1:
+        # 케이스 1: 모든 현장의 조치사항이 같을 경우 (스크린샷처럼 깔끔하게 출력)
+        action = unique_actions[0]
+        summary += f"- {action}"
+    else:
+        # 케이스 2: 현장마다 조치사항이 다를 경우 (현장별 구분 출력)
+        summary += "- 주요 조치 사항:\n"
+        for action in unique_actions:
+            # 해당 조치사항을 가진 현장 찾기
+            target_sites = df[df['조치 사항'] == action]['현장명'].tolist()
+            sites_str = ",".join(target_sites)
+            
+            # (예: [공릉, 중계] 옥외작업 중지...)
+            summary += f"  [{sites_str}] {action}\n"
+
     return summary
 
 # 6. 버튼 클릭 시 동작
@@ -146,10 +159,10 @@ if st.button("📸 보고용 이미지 생성", type="primary"):
                 output_filename = "daily_report_site.png"
                 fig.savefig(output_filename, bbox_inches='tight', dpi=200, pad_inches=0.5)
                 
-                # 2. 텍스트 요약 생성
+                # 2. 텍스트 요약 생성 (NEW)
                 text_report = generate_text_summary(final_df)
                 
-                # [화면 구성] 왼쪽: 이미지 / 오른쪽: 텍스트 복사창
+                # [화면 구성]
                 col1, col2 = st.columns([1, 1])
                 
                 with col1:
@@ -164,8 +177,9 @@ if st.button("📸 보고용 이미지 생성", type="primary"):
                         )
                 
                 with col2:
-                    st.info("✅ 텍스트 요약 생성 완료 (복사해서 사용하세요)")
-                    st.text_area("메신저 전송용 텍스트", value=text_report, height=400)
+                    st.info("✅ 텍스트 요약 (복사용)")
+                    # 텍스트 박스 높이를 조절하여 보기 편하게 함
+                    st.text_area("Ctrl+A, Ctrl+C 하여 사용하세요", value=text_report, height=200)
                     
             except Exception as e:
                 st.error(f"에러가 발생했습니다: {e}")
