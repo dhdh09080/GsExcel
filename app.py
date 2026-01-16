@@ -1,25 +1,46 @@
 import streamlit as st
 import pandas as pd
+import matplotlib
+# 백엔드 설정 (반드시 pyplot import 전에)
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
-import textwrap  # [추가] 텍스트 줄바꿈을 위한 모듈
+import platform
+import textwrap
+import io
 
 # 1. 페이지 설정
 st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
 
 # -----------------------------------------------------------
-# [폰트 설정] 서버에 폰트가 없으면 자동으로 다운로드해서 적용
+# [수정됨] 폰트 설정 (다운로드 기능 제거 -> 시스템 폰트 사용)
 # -----------------------------------------------------------
-@st.cache_resource
 def set_korean_font():
-    font_file = "NanumGothic.ttf"
-    if not os.path.exists(font_file):
-        import urllib.request
-        url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
-        urllib.request.urlretrieve(url, font_file)
-    fm.fontManager.addfont(font_file)
-    plt.rc('font', family='NanumGothic')
+    try:
+        system_name = platform.system()
+        
+        # 1. 윈도우(Windows)일 경우 - GS건설 PC 환경
+        if system_name == "Windows":
+            font_name = "Malgun Gothic" # 맑은 고딕
+            plt.rc('font', family=font_name)
+            
+        # 2. 맥(Mac)일 경우
+        elif system_name == "Darwin":
+            plt.rc('font', family="AppleGothic")
+            
+        # 3. 리눅스/기타 (Streamlit Cloud 등)
+        else:
+            # 리눅스에서 한글 폰트가 없으면 깨질 수 있지만, 
+            # 멈추는 것을 방지하기 위해 다운로드는 시도하지 않음
+            plt.rc('font', family="NanumGothic")
+            
+        # 마이너스 기호 깨짐 방지
+        plt.rcParams['axes.unicode_minus'] = False
+        
+    except Exception as e:
+        # 폰트 설정 실패해도 앱이 멈추지 않도록 예외 처리
+        st.error(f"폰트 설정 중 오류(기본 폰트로 진행): {e}")
 
 set_korean_font()
 # -----------------------------------------------------------
@@ -27,12 +48,11 @@ set_korean_font()
 st.title("🏗️ 현장 보고용 이미지 생성기")
 st.markdown("""
 **[사용법]**
-1. 노션이나 엑셀에서 데이터를 드래그하여 복사(`Ctrl+C`)하세요.
-2. 아래 표의 **첫 번째 칸**을 클릭하고 붙여넣기(`Ctrl+V`)하세요.
-3. 입력이 끝나면 맨 아래 **[📸 보고용 이미지 생성]** 버튼을 누르세요.
+1. 엑셀 데이터를 복사(`Ctrl+C`)하여 아래 표에 붙여넣기(`Ctrl+V`)하세요.
+2. **[📸 보고용 이미지 생성]** 버튼을 누르면 이미지와 **카톡용 요약 텍스트**가 생성됩니다.
 """)
 
-# 2. 초기 데이터 및 컬럼 설정
+# 2. 초기 데이터
 columns = [
     '날짜', '지역', '사업부', '현장명', '최저 기온', 
     '옥내작업', '작업 시작 시간(옥내)', 
@@ -51,44 +71,42 @@ edited_df = st.data_editor(
     height=300
 )
 
-# 4. 표를 그림으로 그려주는 함수 (수정됨)
+# 4. 이미지 생성 함수
 def create_table_image(df):
-    # [수정] 데이터 전처리: 텍스트 줄바꿈 및 행 높이 계산
-    wrap_width = 18  # 한 줄에 들어갈 글자 수 (약 18~20자 추천)
-    
+    wrap_width = 18 
     formatted_data = []
-    row_lines = []   # 각 행이 몇 줄인지 저장할 리스트
+    row_lines = []
     
-    for idx, row in df.iterrows():
+    plot_df = df.copy()
+    
+    for idx, row in plot_df.iterrows():
         row_data = list(row.values)
+        # 데이터가 비어있거나 숫자가 들어올 경우 대비 문자열 변환
+        action_item = str(row_data[10]) if pd.notna(row_data[10]) else ""
         
-        # 10번째 인덱스 ('조치 사항') 처리
-        action_item = str(row_data[10])
-        if action_item:
-            # textwrap을 이용해 지정된 너비로 줄바꿈 처리
+        if action_item and action_item.strip() != "":
             wrapped_text = "\n".join(textwrap.wrap(action_item, width=wrap_width))
             row_data[10] = wrapped_text
-            # 줄 수 계산 (기본 1줄 + 줄바꿈 개수)
             lines = wrapped_text.count('\n') + 1
         else:
+            row_data[10] = ""
             lines = 1
             
         formatted_data.append(row_data)
         row_lines.append(lines)
 
-    # [수정] 전체 이미지 높이 동적 계산
-    # 내용이 많아지면 이미지 세로 길이도 늘어나야 함 (기본 0.8인치 * 줄 수)
     total_lines = sum(row_lines)
     if total_lines < 1: total_lines = 1
     
     fig_height = total_lines * 0.8 + 2
     
+    # [안정성] figure 객체 직접 생성
     fig, ax = plt.subplots(figsize=(22, fig_height))
     ax.axis('off')
     
     table = ax.table(
         cellText=formatted_data,
-        colLabels=df.columns,
+        colLabels=plot_df.columns,
         cellLoc='center',
         loc='center',
         colWidths=[0.1, 0.05, 0.08, 0.25, 0.06, 0.08, 0.1, 0.08, 0.1, 0.1, 0.3] 
@@ -98,55 +116,94 @@ def create_table_image(df):
     table.set_fontsize(13)
     table.scale(1, 2.5)
     
-    # [수정] 행 높이 개별 적용
-    # 헤더 높이(고정)와 데이터 행 높이(줄 수에 비례)를 각각 설정
-    header_height_rel = 0.9 / fig_height  # 헤더는 약 0.9인치 높이로 고정
+    header_height_rel = 0.9 / fig_height
     
     for (row, col), cell in table.get_celld().items():
         if row == 0: 
-            # 헤더 스타일
             cell.set_facecolor('#e6f2ff')
             cell.set_text_props(weight='bold')
             cell.set_height(header_height_rel)
         else:
-            # 데이터 행 스타일 및 높이 조절
-            lines = row_lines[row - 1] # 현재 행의 줄 수
-            
-            # 행 높이: (줄 수 * 0.8인치) / 전체 이미지 높이
+            lines = row_lines[row - 1]
             row_height_rel = (lines * 0.8) / fig_height
             cell.set_height(row_height_rel)
         
-        # 조치 사항(마지막 열)은 왼쪽 정렬
         if col == 10 and row > 0: 
             cell.set_text_props(ha='left')
             
-    plt.title("■ 금일 영하 12도 이하 현장 리스트", fontsize=25, weight='bold', loc='center', pad=20)
+    ax.set_title("■ 금일 영하 12도 이하 현장 리스트", fontsize=25, weight='bold', loc='center', pad=20)
+    
+    # 레이아웃 조정 시 오류 방지
+    try:
+        fig.tight_layout()
+    except:
+        pass
     
     return fig
 
-# 5. 버튼 클릭 시 동작
+# 5. 텍스트 요약
+def generate_text_summary(df):
+    count = len(df)
+    site_names = ", ".join(df['현장명'].astype(str).tolist())
+
+    summary = "[보고 한파(영하12도) 대상 현장]\n"
+    summary += f"- 영하 12도 {count}개 현장이며,\n"
+    summary += f"  : {site_names}\n\n"
+
+    unique_actions = df['조치 사항'].astype(str).unique()
+    
+    # 빈 값 제거
+    unique_actions = [x for x in unique_actions if x and str(x).strip() != 'nan' and str(x).strip() != '']
+
+    if len(unique_actions) == 0:
+        summary += "- 특이 조치 사항 없음"
+    elif len(unique_actions) == 1:
+        summary += f"- {unique_actions[0]}"
+    else:
+        summary += "- 주요 조치 사항:\n"
+        for action in unique_actions:
+            target_sites = df[df['조치 사항'] == action]['현장명'].tolist()
+            sites_str = ",".join(target_sites)
+            summary += f"  [{sites_str}] {action}\n"
+
+    return summary
+
+# 6. 실행 버튼
 if st.button("📸 보고용 이미지 생성", type="primary"):
     final_df = edited_df[edited_df['현장명'] != ""]
     
     if final_df.empty:
         st.warning("⚠️ 데이터를 먼저 입력해주세요!")
     else:
-        with st.spinner('이미지를 예쁘게 그리는 중입니다...'):
-            try:
-                fig = create_table_image(final_df)
+        # 진행 상황을 시각적으로 보여줌
+        status_text = st.empty()
+        status_text.info("🚀 보고서 생성 시작...")
+        
+        try:
+            # 1. 이미지 생성
+            fig = create_table_image(final_df)
+            
+            # 메모리 버퍼 사용
+            img_buffer = io.BytesIO()
+            fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200, pad_inches=0.5)
+            plt.close(fig) # 메모리 해제
+            img_buffer.seek(0)
+            
+            # 2. 텍스트 생성
+            text_report = generate_text_summary(final_df)
+            
+            status_text.empty() # 상태 메시지 지우기
+            
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.success("✅ 이미지 생성 완료")
+                st.image(img_buffer)
+                st.download_button("📥 이미지 다운로드", data=img_buffer, file_name="daily_report.png", mime="image/png")
+            
+            with col2:
+                st.info("✅ 텍스트 요약")
+                st.text_area("복사하기", value=text_report, height=200)
                 
-                output_filename = "daily_report_site.png"
-                fig.savefig(output_filename, bbox_inches='tight', dpi=200, pad_inches=0.5)
-                
-                st.success("이미지 변환 완료!")
-                st.image(output_filename)
-                
-                with open(output_filename, "rb") as file:
-                    st.download_button(
-                        label="📥 이미지 파일 다운로드",
-                        data=file,
-                        file_name=output_filename,
-                        mime="image/png"
-                    )
-            except Exception as e:
-                st.error(f"에러가 발생했습니다: {e}")
+        except Exception as e:
+            st.error(f"❌ 오류 발생: {e}")
+            plt.close('all')
