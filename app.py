@@ -3,13 +3,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
-import textwrap
+import textwrap  # [추가] 텍스트 줄바꿈을 위한 모듈
 
 # 1. 페이지 설정
 st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
 
 # -----------------------------------------------------------
-# [폰트 설정]
+# [폰트 설정] 서버에 폰트가 없으면 자동으로 다운로드해서 적용
 # -----------------------------------------------------------
 @st.cache_resource
 def set_korean_font():
@@ -27,8 +27,9 @@ set_korean_font()
 st.title("🏗️ 현장 보고용 이미지 생성기")
 st.markdown("""
 **[사용법]**
-1. 노션이나 엑셀 데이터를 복사(`Ctrl+C`)하여 아래 표에 붙여넣기(`Ctrl+V`)하세요.
-2. **[📸 보고용 이미지 생성]** 버튼을 누르면 **이미지**와 **요약 텍스트**가 생성됩니다.
+1. 노션이나 엑셀에서 데이터를 드래그하여 복사(`Ctrl+C`)하세요.
+2. 아래 표의 **첫 번째 칸**을 클릭하고 붙여넣기(`Ctrl+V`)하세요.
+3. 입력이 끝나면 맨 아래 **[📸 보고용 이미지 생성]** 버튼을 누르세요.
 """)
 
 # 2. 초기 데이터 및 컬럼 설정
@@ -50,19 +51,24 @@ edited_df = st.data_editor(
     height=300
 )
 
-# 4. 표를 그림으로 그려주는 함수 (텍스트 래핑 포함)
+# 4. 표를 그림으로 그려주는 함수 (수정됨)
 def create_table_image(df):
-    wrap_width = 18 
+    # [수정] 데이터 전처리: 텍스트 줄바꿈 및 행 높이 계산
+    wrap_width = 18  # 한 줄에 들어갈 글자 수 (약 18~20자 추천)
+    
     formatted_data = []
-    row_lines = []
+    row_lines = []   # 각 행이 몇 줄인지 저장할 리스트
     
     for idx, row in df.iterrows():
         row_data = list(row.values)
-        action_item = str(row_data[10]) # 조치 사항 컬럼
         
+        # 10번째 인덱스 ('조치 사항') 처리
+        action_item = str(row_data[10])
         if action_item:
+            # textwrap을 이용해 지정된 너비로 줄바꿈 처리
             wrapped_text = "\n".join(textwrap.wrap(action_item, width=wrap_width))
             row_data[10] = wrapped_text
+            # 줄 수 계산 (기본 1줄 + 줄바꿈 개수)
             lines = wrapped_text.count('\n') + 1
         else:
             lines = 1
@@ -70,6 +76,8 @@ def create_table_image(df):
         formatted_data.append(row_data)
         row_lines.append(lines)
 
+    # [수정] 전체 이미지 높이 동적 계산
+    # 내용이 많아지면 이미지 세로 길이도 늘어나야 함 (기본 0.8인치 * 줄 수)
     total_lines = sum(row_lines)
     if total_lines < 1: total_lines = 1
     
@@ -90,18 +98,25 @@ def create_table_image(df):
     table.set_fontsize(13)
     table.scale(1, 2.5)
     
-    header_height_rel = 0.9 / fig_height
+    # [수정] 행 높이 개별 적용
+    # 헤더 높이(고정)와 데이터 행 높이(줄 수에 비례)를 각각 설정
+    header_height_rel = 0.9 / fig_height  # 헤더는 약 0.9인치 높이로 고정
     
     for (row, col), cell in table.get_celld().items():
         if row == 0: 
+            # 헤더 스타일
             cell.set_facecolor('#e6f2ff')
             cell.set_text_props(weight='bold')
             cell.set_height(header_height_rel)
         else:
-            lines = row_lines[row - 1]
+            # 데이터 행 스타일 및 높이 조절
+            lines = row_lines[row - 1] # 현재 행의 줄 수
+            
+            # 행 높이: (줄 수 * 0.8인치) / 전체 이미지 높이
             row_height_rel = (lines * 0.8) / fig_height
             cell.set_height(row_height_rel)
         
+        # 조치 사항(마지막 열)은 왼쪽 정렬
         if col == 10 and row > 0: 
             cell.set_text_props(ha='left')
             
@@ -109,63 +124,29 @@ def create_table_image(df):
     
     return fig
 
-# [추가됨] 5. 텍스트 요약 생성 함수
-def generate_text_summary(df):
-    # 날짜가 있으면 첫 번째 행의 날짜를 가져오고, 없으면 오늘 날짜
-    try:
-        report_date = df.iloc[0]['날짜']
-    except:
-        report_date = "금일"
-
-    summary = f"📋 [{report_date} 혹한기 현장 점검 보고]\n\n"
-    summary += f"■ 모니터링 대상: 총 {len(df)}개 현장\n"
-    summary += "■ 주요 조치 사항:\n"
-    
-    for idx, row in df.iterrows():
-        site_name = row['현장명']
-        temp = row['최저 기온']
-        # 텍스트 보고에서는 줄바꿈 문자를 공백으로 변경하여 한 줄로 표시
-        action = str(row['조치 사항']).replace('\n', ' ')
-        
-        summary += f"- {site_name} ({temp}): {action}\n"
-    
-    summary += "\n이상입니다."
-    return summary
-
-# 6. 버튼 클릭 시 동작
+# 5. 버튼 클릭 시 동작
 if st.button("📸 보고용 이미지 생성", type="primary"):
     final_df = edited_df[edited_df['현장명'] != ""]
     
     if final_df.empty:
         st.warning("⚠️ 데이터를 먼저 입력해주세요!")
     else:
-        with st.spinner('보고서를 생성 중입니다...'):
+        with st.spinner('이미지를 예쁘게 그리는 중입니다...'):
             try:
-                # 1. 이미지 생성
                 fig = create_table_image(final_df)
+                
                 output_filename = "daily_report_site.png"
                 fig.savefig(output_filename, bbox_inches='tight', dpi=200, pad_inches=0.5)
                 
-                # 2. 텍스트 요약 생성
-                text_report = generate_text_summary(final_df)
+                st.success("이미지 변환 완료!")
+                st.image(output_filename)
                 
-                # [화면 구성] 왼쪽: 이미지 / 오른쪽: 텍스트 복사창
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    st.success("✅ 이미지 생성 완료")
-                    st.image(output_filename)
-                    with open(output_filename, "rb") as file:
-                        st.download_button(
-                            label="📥 이미지 다운로드",
-                            data=file,
-                            file_name=output_filename,
-                            mime="image/png"
-                        )
-                
-                with col2:
-                    st.info("✅ 텍스트 요약 생성 완료 (복사해서 사용하세요)")
-                    st.text_area("메신저 전송용 텍스트", value=text_report, height=400)
-                    
+                with open(output_filename, "rb") as file:
+                    st.download_button(
+                        label="📥 이미지 파일 다운로드",
+                        data=file,
+                        file_name=output_filename,
+                        mime="image/png"
+                    )
             except Exception as e:
                 st.error(f"에러가 발생했습니다: {e}")
