@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
 import textwrap
+import io  # [추가됨] 메모리 버퍼 기능을 위해 필요합니다.
 
 # 1. 페이지 설정
 st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
@@ -15,11 +16,18 @@ st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
 def set_korean_font():
     font_file = "NanumGothic.ttf"
     if not os.path.exists(font_file):
-        import urllib.request
-        url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
-        urllib.request.urlretrieve(url, font_file)
+        try:
+            import urllib.request
+            url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+            urllib.request.urlretrieve(url, font_file)
+        except Exception as e:
+            st.error(f"폰트 다운로드 실패: {e}")
+            return
+
     fm.fontManager.addfont(font_file)
     plt.rc('font', family='NanumGothic')
+    # 마이너스 기호 깨짐 방지
+    plt.rcParams['axes.unicode_minus'] = False
 
 set_korean_font()
 # -----------------------------------------------------------
@@ -64,6 +72,7 @@ def create_table_image(df):
         action_item = str(row_data[10]) # 조치 사항 컬럼
         
         if action_item:
+            # 텍스트가 너무 길면 줄바꿈 처리
             wrapped_text = "\n".join(textwrap.wrap(action_item, width=wrap_width))
             row_data[10] = wrapped_text
             lines = wrapped_text.count('\n') + 1
@@ -78,6 +87,7 @@ def create_table_image(df):
     
     fig_height = total_lines * 0.8 + 2
     
+    # [중요] Matplotlib 백엔드 충돌 방지를 위해 figure 객체 명시적 생성
     fig, ax = plt.subplots(figsize=(22, fig_height))
     ax.axis('off')
     
@@ -112,40 +122,31 @@ def create_table_image(df):
     
     return fig
 
-# [수정됨] 5. 카카오톡 스타일 텍스트 요약 생성 함수
+# 5. 카카오톡 스타일 텍스트 요약 생성 함수
 def generate_text_summary(df):
-    # 1. 제목 및 현장 리스트 구성
     count = len(df)
-    # 현장명 리스트를 콤마로 연결 (예: 공릉, 중계, 이천자이...)
+    # 현장명 리스트를 콤마로 연결
     site_names = ", ".join(df['현장명'].astype(str).tolist())
 
     summary = "[보고 한파(영하12도) 대상 현장]\n"
     summary += f"- 영하 12도 {count}개 현장이며,\n"
     summary += f"  : {site_names}\n\n"
 
-    # 2. 조치 사항 구성 (내용이 같은 현장끼리 묶기)
-    # 조치 사항의 줄바꿈 문자는 공백으로 치환하여 한 줄로 만듦
-    # unique()를 사용하여 중복된 조치사항을 제거하고 확인
     unique_actions = df['조치 사항'].astype(str).unique()
 
     if len(unique_actions) == 1:
-        # 케이스 1: 모든 현장의 조치사항이 같을 경우 (스크린샷처럼 깔끔하게 출력)
         action = unique_actions[0]
         summary += f"- {action}"
     else:
-        # 케이스 2: 현장마다 조치사항이 다를 경우 (현장별 구분 출력)
         summary += "- 주요 조치 사항:\n"
         for action in unique_actions:
-            # 해당 조치사항을 가진 현장 찾기
             target_sites = df[df['조치 사항'] == action]['현장명'].tolist()
             sites_str = ",".join(target_sites)
-            
-            # (예: [공릉, 중계] 옥외작업 중지...)
             summary += f"  [{sites_str}] {action}\n"
 
     return summary
 
-# 6. 버튼 클릭 시 동작
+# 6. 버튼 클릭 시 동작 (여기가 수정되었습니다)
 if st.button("📸 보고용 이미지 생성", type="primary"):
     final_df = edited_df[edited_df['현장명'] != ""]
     
@@ -156,10 +157,17 @@ if st.button("📸 보고용 이미지 생성", type="primary"):
             try:
                 # 1. 이미지 생성
                 fig = create_table_image(final_df)
-                output_filename = "daily_report_site.png"
-                fig.savefig(output_filename, bbox_inches='tight', dpi=200, pad_inches=0.5)
                 
-                # 2. 텍스트 요약 생성 (NEW)
+                # [수정됨] 파일을 디스크에 쓰지 않고 메모리 버퍼(BytesIO) 사용
+                img_buffer = io.BytesIO()
+                fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200, pad_inches=0.5)
+                
+                # [수정됨] 메모리 누수 방지를 위해 figure 닫기 (흰 화면 방지 핵심)
+                plt.close(fig)
+                
+                img_buffer.seek(0) # 버퍼 포인터를 처음으로 되돌림
+                
+                # 2. 텍스트 요약 생성
                 text_report = generate_text_summary(final_df)
                 
                 # [화면 구성]
@@ -167,19 +175,21 @@ if st.button("📸 보고용 이미지 생성", type="primary"):
                 
                 with col1:
                     st.success("✅ 이미지 생성 완료")
-                    st.image(output_filename)
-                    with open(output_filename, "rb") as file:
-                        st.download_button(
-                            label="📥 이미지 다운로드",
-                            data=file,
-                            file_name=output_filename,
-                            mime="image/png"
-                        )
+                    # 버퍼에서 직접 이미지 출력
+                    st.image(img_buffer)
+                    
+                    st.download_button(
+                        label="📥 이미지 다운로드",
+                        data=img_buffer, # 버퍼 데이터 사용
+                        file_name="daily_report_site.png",
+                        mime="image/png"
+                    )
                 
                 with col2:
                     st.info("✅ 텍스트 요약 (복사용)")
-                    # 텍스트 박스 높이를 조절하여 보기 편하게 함
                     st.text_area("Ctrl+A, Ctrl+C 하여 사용하세요", value=text_report, height=200)
                     
             except Exception as e:
                 st.error(f"에러가 발생했습니다: {e}")
+                # 혹시 에러가 나더라도 figure는 닫아줌
+                plt.close('all')
