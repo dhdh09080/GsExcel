@@ -142,48 +142,61 @@ def create_table_image(df):
     
     return fig
 
-# 4-1. [추가] 노션 줄바꿈 자동 병합 함수
+# 4-1. [수정됨] 노션 줄바꿈 강력 병합 함수
 def merge_notion_rows(df):
     """
-    현장명은 없는데 조치사항만 있는 행(노션 줄바꿈으로 인해 생긴 행)을
-    바로 위쪽의 유효한 행의 조치사항에 합쳐줍니다.
+    현장명은 없는데 조치사항만 있는 행(노션 줄바꿈)을
+    위쪽의 '주인 있는 행'에 강제로 합쳐줍니다.
     """
-    # 원본 보존을 위해 복사
+    # 원본 보호를 위해 복사
     processed_df = df.copy()
     
-    # 지울 행의 인덱스를 저장할 리스트
-    indices_to_drop = []
+    # 삭제할 행을 표시할 리스트
+    rows_to_drop = []
     
-    # 가장 최근에 '현장명'이 있었던 행의 인덱스
-    last_valid_idx = None
+    # 마지막으로 발견한 '주인 있는 행'의 번호
+    last_valid_idx = -1
 
-    for idx, row in processed_df.iterrows():
-        site_name = str(row['현장명']).strip()
-        action = str(row['조치 사항']).strip()
+    for i in range(len(processed_df)):
+        # 1. 현장명과 조치사항 가져오기 (공백 제거 및 문자열 변환)
+        site_raw = processed_df.iloc[i]['현장명']
+        action_raw = processed_df.iloc[i]['조치 사항']
         
-        # 1. 현장명이 제대로 있는 경우 (새로운 데이터)
-        if site_name != "" and site_name != "nan":
-            last_valid_idx = idx
+        # 현장명이 비어있는지 확실하게 체크 (None, NaN, 빈문자열 모두 잡아냄)
+        is_site_empty = False
+        if pd.isna(site_raw) or str(site_raw).strip() == "" or str(site_raw).strip() == "nan":
+            is_site_empty = True
             
-        # 2. 현장명은 없고, 조치사항만 있으며, 이전에 유효한 행이 있었던 경우 (노션 줄바꿈)
-        elif (site_name == "" or site_name == "nan") and action != "" and last_valid_idx is not None:
-            # 윗줄(last_valid_idx)의 조치사항 내용을 가져옴
-            prev_action = str(processed_df.at[last_valid_idx, '조치 사항'])
-            
-            # 내용 합치기 (줄바꿈 문자 \n 추가)
-            if prev_action:
-                new_action = prev_action + "\n" + action
-            else:
-                new_action = action
-                
-            # 합친 내용을 윗줄에 덮어씌움
-            processed_df.at[last_valid_idx, '조치 사항'] = new_action
-            
-            # 현재 행은 껍데기만 남았으므로 삭제 리스트에 추가
-            indices_to_drop.append(idx)
+        action_text = str(action_raw).strip() if not pd.isna(action_raw) else ""
 
-    # 합쳐진 짜투리 행들을 삭제하고 인덱스 초기화
-    processed_df = processed_df.drop(indices_to_drop).reset_index(drop=True)
+        # 2. 로직 수행
+        if not is_site_empty:
+            # 현장명이 제대로 있으면, 이 행이 새로운 '주인'입니다.
+            last_valid_idx = i
+            
+        elif is_site_empty and action_text != "" and last_valid_idx != -1:
+            # 현장명은 없는데 내용이 있고, 위에 주인이 있다면 -> 합친다!
+            
+            # 주인 행의 기존 조치사항 가져오기
+            parent_action = processed_df.iloc[last_valid_idx]['조치 사항']
+            parent_text = str(parent_action).strip() if not pd.isna(parent_action) else ""
+            
+            # 내용 합치기 (줄바꿈 추가)
+            if parent_text:
+                new_text = parent_text + "\n" + action_text
+            else:
+                new_text = action_text
+            
+            # 주인 행(last_valid_idx)에 덮어씌우기
+            # iloc 대신 iat 사용 (더 안전함)
+            col_idx = processed_df.columns.get_loc('조치 사항')
+            processed_df.iat[last_valid_idx, col_idx] = new_text
+            
+            # 현재 행은 합쳐졌으니 삭제 목록에 추가
+            rows_to_drop.append(i)
+
+    # 합쳐진 행들 삭제 및 인덱스 초기화
+    processed_df = processed_df.drop(processed_df.index[rows_to_drop]).reset_index(drop=True)
     
     return processed_df
 
