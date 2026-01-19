@@ -6,42 +6,43 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
-import platform
 import textwrap
 import io
+import urllib.request # 폰트 다운로드를 위해 추가
 
 # 1. 페이지 설정
 st.set_page_config(page_title="현장 보고서 생성기", layout="wide")
 
 # -----------------------------------------------------------
-# [수정됨] 폰트 설정 (다운로드 기능 제거 -> 시스템 폰트 사용)
+# [폰트 설정] 폰트 파일을 직접 다운로드하여 적용 (OS 무관 해결책)
 # -----------------------------------------------------------
 def set_korean_font():
+    font_file = "NanumGothic.ttf"
+    # 구글 폰트(나눔고딕) 다운로드 URL
+    font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+
+    # 1. 폰트 파일이 없으면 다운로드
+    if not os.path.exists(font_file):
+        try:
+            with st.spinner("한글 폰트 다운로드 중..."):
+                urllib.request.urlretrieve(font_url, font_file)
+        except Exception as e:
+            st.error(f"폰트 다운로드 실패: {e}")
+            return
+
+    # 2. 다운받은 폰트를 Matplotlib에 등록 및 적용
     try:
-        system_name = platform.system()
+        fm.fontManager.addfont(font_file)
+        font_prop = fm.FontProperties(fname=font_file)
+        font_name = font_prop.get_name()
         
-        # 1. 윈도우(Windows)일 경우 - GS건설 PC 환경
-        if system_name == "Windows":
-            font_name = "Malgun Gothic" # 맑은 고딕
-            plt.rc('font', family=font_name)
-            
-        # 2. 맥(Mac)일 경우
-        elif system_name == "Darwin":
-            plt.rc('font', family="AppleGothic")
-            
-        # 3. 리눅스/기타 (Streamlit Cloud 등)
-        else:
-            # 리눅스에서 한글 폰트가 없으면 깨질 수 있지만, 
-            # 멈추는 것을 방지하기 위해 다운로드는 시도하지 않음
-            plt.rc('font', family="NanumGothic")
-            
-        # 마이너스 기호 깨짐 방지
-        plt.rcParams['axes.unicode_minus'] = False
+        plt.rc('font', family=font_name)
+        plt.rcParams['axes.unicode_minus'] = False # 마이너스 기호 깨짐 방지
         
     except Exception as e:
-        # 폰트 설정 실패해도 앱이 멈추지 않도록 예외 처리
-        st.error(f"폰트 설정 중 오류(기본 폰트로 진행): {e}")
+        st.error(f"폰트 적용 중 오류: {e}")
 
+# 폰트 설정 실행
 set_korean_font()
 # -----------------------------------------------------------
 
