@@ -142,9 +142,10 @@ def create_table_image(df):
     
     return fig
 
-# 5. 텍스트 요약
+# 5. 텍스트 요약 (수정 버전)
 def generate_text_summary(df):
     count = len(df)
+    # 여기는 이미 안전장치(astype(str))가 있어서 괜찮았습니다.
     site_names = ", ".join(df['현장명'].astype(str).tolist())
 
     summary = "[보고 한파(영하12도) 대상 현장]\n"
@@ -163,7 +164,8 @@ def generate_text_summary(df):
     else:
         summary += "- 주요 조치 사항:\n"
         for action in unique_actions:
-            target_sites = df[df['조치 사항'] == action]['현장명'].tolist()
+            # [수정된 부분] 여기에 .astype(str)을 추가해서 None을 문자로 강제 변환합니다.
+            target_sites = df[df['조치 사항'] == action]['현장명'].astype(str).tolist()
             sites_str = ",".join(target_sites)
             summary += f"  [{sites_str}] {action}\n"
 
