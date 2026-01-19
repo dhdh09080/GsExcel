@@ -75,7 +75,7 @@ edited_df = st.data_editor(
 # 4. 이미지 생성 함수 (수정)
 def create_table_image(df):
     # [수정] 기존 18에서 40으로 변경 (칸을 넓게 씁니다)
-    wrap_width = 40 
+    wrap_width = 30 
     
     formatted_data = []
     row_lines = []
