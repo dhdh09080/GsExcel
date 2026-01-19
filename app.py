@@ -204,35 +204,100 @@ def merge_notion_rows(df):
     
     return processed_df
 
-# 5. 텍스트 요약 (수정 버전)
+# 5. 텍스트 요약 (업그레이드 버전)
 def generate_text_summary(df):
-    count = len(df)
-    # 여기는 이미 안전장치(astype(str))가 있어서 괜찮았습니다.
-    site_names = ", ".join(df['현장명'].astype(str).tolist())
-
-    summary = "[보고 한파(영하12도) 대상 현장]\n"
-    summary += f"- 영하 12도 {count}개 현장이며,\n"
-    summary += f"  : {site_names}\n\n"
-
-    unique_actions = df['조치 사항'].astype(str).unique()
+    # ---------------------------------------------------------
+    # 1. 데이터 전처리 (기온 숫자 변환)
+    # ---------------------------------------------------------
+    temp_df = df.copy()
     
-    # 빈 값 제거
-    unique_actions = [x for x in unique_actions if x and str(x).strip() != 'nan' and str(x).strip() != '']
+    # '최저 기온'에서 숫자만 추출하는 함수
+    def clean_temp(x):
+        try:
+            # 문자열로 변환 후 '도', 공백 제거
+            clean_str = str(x).replace('도', '').replace('℃', '').strip()
+            return float(clean_str)
+        except:
+            return 999 # 에러 시 큰 수로 처리하여 분류 제외
 
-    if len(unique_actions) == 0:
+    temp_df['temp_val'] = temp_df['최저 기온'].apply(clean_temp)
+    
+    # 사업부 순서, 기온 낮은 순서로 정렬
+    temp_df = temp_df.sort_values(by=['사업부', 'temp_val'])
+
+    # ---------------------------------------------------------
+    # 2. 보고서 헤더 작성
+    # ---------------------------------------------------------
+    total_count = len(temp_df)
+    # 영하 15도 이하 개수 파악
+    severe_cold_count = len(temp_df[temp_df['temp_val'] <= -15])
+    
+    summary = "📋 [한파(영하 12도) 관리 대상 현장 보고]\n"
+    summary += f"■ 총 {total_count}개 현장 (영하 15도 이하: {severe_cold_count}개)\n\n"
+
+    # ---------------------------------------------------------
+    # 3. 사업부별 상세 내역
+    # ---------------------------------------------------------
+    # 사업부 목록 추출 (빈 값 제외)
+    divisions = [d for d in temp_df['사업부'].unique() if str(d).strip() != '']
+    
+    for div in divisions:
+        div_df = temp_df[temp_df['사업부'] == div]
+        
+        # 해당 사업부의 현장 리스트업 (이름 + 기온)
+        site_info_list = []
+        cnt_under_15 = 0
+        
+        for _, row in div_df.iterrows():
+            site_name = str(row['현장명'])
+            temp = row['최저 기온'] # 원본 텍스트 사용
+            temp_val = row['temp_val']
+            
+            # 영하 15도 이하는 강조 표시 등을 할 수도 있음
+            if temp_val <= -15:
+                cnt_under_15 += 1
+                site_info_list.append(f"{site_name}({temp}⚠️)")
+            else:
+                site_info_list.append(f"{site_name}({temp})")
+        
+        # 텍스트 조합
+        sites_str = ", ".join(site_info_list)
+        div_total = len(div_df)
+        
+        summary += f"[{div}] {div_total}개 현장"
+        if cnt_under_15 > 0:
+            summary += f" (🚨영하15도: {cnt_under_15}개)"
+        summary += "\n"
+        summary += f" : {sites_str}\n\n"
+
+    # ---------------------------------------------------------
+    # 4. 조치 사항 요약 (기존 로직 유지 + 보완)
+    # ---------------------------------------------------------
+    summary += "■ 주요 조치 사항\n"
+    
+    # 조치사항 빈 값 제거 및 문자열 변환
+    unique_actions = temp_df['조치 사항'].astype(str).unique()
+    valid_actions = [x for x in unique_actions if x and x.strip() != 'nan' and x.strip() != '']
+
+    if len(valid_actions) == 0:
         summary += "- 특이 조치 사항 없음"
-    elif len(unique_actions) == 1:
-        summary += f"- {unique_actions[0]}"
     else:
-        summary += "- 주요 조치 사항:\n"
-        for action in unique_actions:
-            # [수정된 부분] 여기에 .astype(str)을 추가해서 None을 문자로 강제 변환합니다.
-            target_sites = df[df['조치 사항'] == action]['현장명'].astype(str).tolist()
+        for action in valid_actions:
+            # 해당 조치를 한 현장들 찾기
+            target_sites = temp_df[temp_df['조치 사항'] == action]['현장명'].astype(str).tolist()
+            
+            # 현장이 너무 많으면 'OO현장 외 N개'로 줄일 수도 있으나, 일단 다 표시
             sites_str = ",".join(target_sites)
-            summary += f"  [{sites_str}] {action}\n"
+            
+            # 조치사항 내용이 너무 길면 첫 줄만 보여주거나 줄바꿈 정리
+            clean_action = action.replace('\n', ' ')
+            if len(clean_action) > 50:
+                clean_action = clean_action[:50] + "..."
+                
+            summary += f"- {clean_action}\n"
+            summary += f"  └ 대상: {sites_str}\n"
 
     return summary
-
 # 6. 실행 버튼 (수정된 부분)
 if st.button("📸 보고용 이미지 생성", type="primary"):
     
