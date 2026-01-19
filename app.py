@@ -142,6 +142,51 @@ def create_table_image(df):
     
     return fig
 
+# 4-1. [추가] 노션 줄바꿈 자동 병합 함수
+def merge_notion_rows(df):
+    """
+    현장명은 없는데 조치사항만 있는 행(노션 줄바꿈으로 인해 생긴 행)을
+    바로 위쪽의 유효한 행의 조치사항에 합쳐줍니다.
+    """
+    # 원본 보존을 위해 복사
+    processed_df = df.copy()
+    
+    # 지울 행의 인덱스를 저장할 리스트
+    indices_to_drop = []
+    
+    # 가장 최근에 '현장명'이 있었던 행의 인덱스
+    last_valid_idx = None
+
+    for idx, row in processed_df.iterrows():
+        site_name = str(row['현장명']).strip()
+        action = str(row['조치 사항']).strip()
+        
+        # 1. 현장명이 제대로 있는 경우 (새로운 데이터)
+        if site_name != "" and site_name != "nan":
+            last_valid_idx = idx
+            
+        # 2. 현장명은 없고, 조치사항만 있으며, 이전에 유효한 행이 있었던 경우 (노션 줄바꿈)
+        elif (site_name == "" or site_name == "nan") and action != "" and last_valid_idx is not None:
+            # 윗줄(last_valid_idx)의 조치사항 내용을 가져옴
+            prev_action = str(processed_df.at[last_valid_idx, '조치 사항'])
+            
+            # 내용 합치기 (줄바꿈 문자 \n 추가)
+            if prev_action:
+                new_action = prev_action + "\n" + action
+            else:
+                new_action = action
+                
+            # 합친 내용을 윗줄에 덮어씌움
+            processed_df.at[last_valid_idx, '조치 사항'] = new_action
+            
+            # 현재 행은 껍데기만 남았으므로 삭제 리스트에 추가
+            indices_to_drop.append(idx)
+
+    # 합쳐진 짜투리 행들을 삭제하고 인덱스 초기화
+    processed_df = processed_df.drop(indices_to_drop).reset_index(drop=True)
+    
+    return processed_df
+
 # 5. 텍스트 요약 (수정 버전)
 def generate_text_summary(df):
     count = len(df)
@@ -171,9 +216,15 @@ def generate_text_summary(df):
 
     return summary
 
-# 6. 실행 버튼
+# 6. 실행 버튼 (수정된 부분)
 if st.button("📸 보고용 이미지 생성", type="primary"):
-    final_df = edited_df[edited_df['현장명'] != ""]
+    
+    # [수정] 1단계: 먼저 노션 줄바꿈 문제부터 해결 (전처리)
+    # 전체 데이터에서 병합 로직을 먼저 수행
+    merged_df = merge_notion_rows(edited_df)
+    
+    # [수정] 2단계: 그 다음 현장명이 있는 것만 필터링
+    final_df = merged_df[merged_df['현장명'] != ""]
     
     if final_df.empty:
         st.warning("⚠️ 데이터를 먼저 입력해주세요!")
