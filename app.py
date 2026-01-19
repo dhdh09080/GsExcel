@@ -72,9 +72,11 @@ edited_df = st.data_editor(
     height=300
 )
 
-# 4. 이미지 생성 함수
+# 4. 이미지 생성 함수 (수정)
 def create_table_image(df):
-    wrap_width = 18 
+    # [수정] 기존 18에서 40으로 변경 (칸을 넓게 씁니다)
+    wrap_width = 40 
+    
     formatted_data = []
     row_lines = []
     
@@ -82,10 +84,11 @@ def create_table_image(df):
     
     for idx, row in plot_df.iterrows():
         row_data = list(row.values)
-        # 데이터가 비어있거나 숫자가 들어올 경우 대비 문자열 변환
         action_item = str(row_data[10]) if pd.notna(row_data[10]) else ""
         
+        # 줄바꿈 처리 로직
         if action_item and action_item.strip() != "":
+            # 여기서 설정한 너비(40자)에 맞춰서 줄을 나눕니다
             wrapped_text = "\n".join(textwrap.wrap(action_item, width=wrap_width))
             row_data[10] = wrapped_text
             lines = wrapped_text.count('\n') + 1
@@ -96,12 +99,12 @@ def create_table_image(df):
         formatted_data.append(row_data)
         row_lines.append(lines)
 
+    # (이하 코드는 기존과 동일합니다)
     total_lines = sum(row_lines)
     if total_lines < 1: total_lines = 1
     
     fig_height = total_lines * 0.8 + 2
     
-    # [안정성] figure 객체 직접 생성
     fig, ax = plt.subplots(figsize=(22, fig_height))
     ax.axis('off')
     
@@ -110,6 +113,7 @@ def create_table_image(df):
         colLabels=plot_df.columns,
         cellLoc='center',
         loc='center',
+        # 마지막 조치사항 열의 비율이 0.3(30%)이므로 40글자 정도가 적당합니다.
         colWidths=[0.1, 0.05, 0.08, 0.25, 0.06, 0.08, 0.1, 0.08, 0.1, 0.1, 0.3] 
     )
     
@@ -129,12 +133,12 @@ def create_table_image(df):
             row_height_rel = (lines * 0.8) / fig_height
             cell.set_height(row_height_rel)
         
+        # 조치사항(10번째 열)은 왼쪽 정렬
         if col == 10 and row > 0: 
             cell.set_text_props(ha='left')
             
     ax.set_title("■ 금일 영하 12도 이하 현장 리스트", fontsize=25, weight='bold', loc='center', pad=20)
     
-    # 레이아웃 조정 시 오류 방지
     try:
         fig.tight_layout()
     except:
