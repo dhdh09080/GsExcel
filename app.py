@@ -146,60 +146,70 @@ def create_table_image(df):
     
     return fig
 
-# 4-1. [수정됨] 노션 줄바꿈 강력 병합 함수
+# 4-1. [최종 수정] 노션 줄바꿈 "영혼까지 끌어모으기" 병합 함수
 def merge_notion_rows(df):
     """
-    현장명은 없는데 조치사항만 있는 행(노션 줄바꿈)을
-    위쪽의 '주인 있는 행'에 강제로 합쳐줍니다.
+    현장명(필수값)이 없는 행은 '노션 줄바꿈'으로 간주합니다.
+    이런 행에서 데이터가 '날짜' 열에 있든, '지역' 열에 있든 찾아내서
+    바로 위쪽 '주인 행'의 [조치 사항]에 합쳐줍니다.
     """
     # 원본 보호를 위해 복사
     processed_df = df.copy()
     
-    # 삭제할 행을 표시할 리스트
+    # 삭제할 행을 담을 리스트
     rows_to_drop = []
     
-    # 마지막으로 발견한 '주인 있는 행'의 번호
+    # 마지막으로 발견한 '주인 있는 행' (현장명이 제대로 있는 줄)
     last_valid_idx = -1
 
     for i in range(len(processed_df)):
-        # 1. 현장명과 조치사항 가져오기 (공백 제거 및 문자열 변환)
+        # 1. 현장명 확인 (주인인지 아닌지 판별)
         site_raw = processed_df.iloc[i]['현장명']
-        action_raw = processed_df.iloc[i]['조치 사항']
         
-        # 현장명이 비어있는지 확실하게 체크 (None, NaN, 빈문자열 모두 잡아냄)
+        # 현장명이 비어있는지 체크 (None, NaN, 빈문자열)
         is_site_empty = False
         if pd.isna(site_raw) or str(site_raw).strip() == "" or str(site_raw).strip() == "nan":
             is_site_empty = True
-            
-        action_text = str(action_raw).strip() if not pd.isna(action_raw) else ""
 
         # 2. 로직 수행
         if not is_site_empty:
-            # 현장명이 제대로 있으면, 이 행이 새로운 '주인'입니다.
+            # 현장명이 있으면 이 행이 새로운 '주인'입니다.
             last_valid_idx = i
             
-        elif is_site_empty and action_text != "" and last_valid_idx != -1:
-            # 현장명은 없는데 내용이 있고, 위에 주인이 있다면 -> 합친다!
+        elif is_site_empty and last_valid_idx != -1:
+            # 주인은 없는데 위에 부모 행이 있다면 -> "떨어져 나온 텍스트" 찾기
             
-            # 주인 행의 기존 조치사항 가져오기
-            parent_action = processed_df.iloc[last_valid_idx]['조치 사항']
-            parent_text = str(parent_action).strip() if not pd.isna(parent_action) else ""
+            # 해당 줄(row)의 모든 컬럼을 뒤져서 글자가 있는 내용을 찾습니다.
+            # 보통 '날짜' 열(0번)에 들어가지만, 혹시 모르니 전체를 훑습니다.
+            found_text_list = []
+            for col_val in processed_df.iloc[i]:
+                val_str = str(col_val).strip()
+                if not pd.isna(col_val) and val_str != "" and val_str != "nan" and val_str != "None":
+                    found_text_list.append(val_str)
             
-            # 내용 합치기 (줄바꿈 추가)
-            if parent_text:
-                new_text = parent_text + "\n" + action_text
-            else:
-                new_text = action_text
-            
-            # 주인 행(last_valid_idx)에 덮어씌우기
-            # iloc 대신 iat 사용 (더 안전함)
-            col_idx = processed_df.columns.get_loc('조치 사항')
-            processed_df.iat[last_valid_idx, col_idx] = new_text
-            
-            # 현재 행은 합쳐졌으니 삭제 목록에 추가
-            rows_to_drop.append(i)
+            # 찾은 내용이 있다면 합치기
+            if found_text_list:
+                # 흩어진 텍스트를 하나로 뭉침
+                fragment_text = " ".join(found_text_list)
+                
+                # 주인 행의 기존 조치사항 가져오기
+                parent_col_idx = processed_df.columns.get_loc('조치 사항')
+                parent_action = processed_df.iat[last_valid_idx, parent_col_idx]
+                parent_text = str(parent_action).strip() if not pd.isna(parent_action) else ""
+                
+                # 내용 합치기 (줄바꿈 추가)
+                if parent_text:
+                    new_text = parent_text + "\n" + fragment_text
+                else:
+                    new_text = fragment_text
+                
+                # 주인 행에 업데이트
+                processed_df.iat[last_valid_idx, parent_col_idx] = new_text
+                
+                # 내용 뺏긴 행은 삭제 목록에 추가
+                rows_to_drop.append(i)
 
-    # 합쳐진 행들 삭제 및 인덱스 초기화
+    # 3. 껍데기만 남은 행들 삭제 및 정리
     processed_df = processed_df.drop(processed_df.index[rows_to_drop]).reset_index(drop=True)
     
     return processed_df
