@@ -308,37 +308,46 @@ def generate_text_summary(df):
             summary += f"  └ 대상: {sites_str}\n"
 
     return summary
-# 6. 실행 버튼 (수정된 부분)
+# 6. 실행 버튼 (완전체 버전)
 if st.button("📸 보고용 이미지 생성", type="primary"):
     
-    # [수정] 1단계: 먼저 노션 줄바꿈 문제부터 해결 (전처리)
-    # 전체 데이터에서 병합 로직을 먼저 수행
+    # 1. 노션 줄바꿈 문제 해결 (흩어진 내용 합치기)
     merged_df = merge_notion_rows(edited_df)
     
-    # [수정] 2단계: 그 다음 현장명이 있는 것만 필터링
-    final_df = merged_df[merged_df['현장명'] != ""]
-    
+    # 2. [수정됨] '모든 칸이 비어있는 행'만 삭제
+    # (현장명을 깜빡했어도 다른 데이터가 있으면 살립니다)
+    def is_row_completely_empty(row):
+        # 행의 모든 값을 하나씩 꺼내서 문자로 만들고 공백을 제거한 뒤 합칩니다.
+        # "nan", "None" 같은 시스템 문자도 걸러냅니다.
+        all_text = "".join([str(x).strip().replace('nan', '').replace('None', '') for x in row])
+        return len(all_text) == 0 # 합친 글자 길이가 0이면 진짜 빈 줄
+
+    # 위 함수를 적용해서 데이터가 조금이라도 있는 행만 남깁니다.
+    final_df = merged_df[~merged_df.apply(is_row_completely_empty, axis=1)]
+
     if final_df.empty:
-        st.warning("⚠️ 데이터를 먼저 입력해주세요!")
+        st.warning("⚠️ 입력된 데이터가 없습니다.")
     else:
-        # 진행 상황을 시각적으로 보여줌
+        # 3. 사업부 기준으로 정렬 (끼리끼리 묶기)
+        # 사업부가 비어있을 수도 있으니, 비어있으면 맨 뒤로 보내기 위해 fillna 처리 후 정렬
+        final_df = final_df.sort_values(by='사업부', na_position='last').reset_index(drop=True)
+
         status_text = st.empty()
         status_text.info("🚀 보고서 생성 시작...")
         
         try:
-            # 1. 이미지 생성
+            # 이미지 생성
             fig = create_table_image(final_df)
             
-            # 메모리 버퍼 사용
             img_buffer = io.BytesIO()
             fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200, pad_inches=0.5)
-            plt.close(fig) # 메모리 해제
+            plt.close(fig)
             img_buffer.seek(0)
             
-            # 2. 텍스트 생성
+            # 텍스트 생성
             text_report = generate_text_summary(final_df)
             
-            status_text.empty() # 상태 메시지 지우기
+            status_text.empty()
             
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -348,7 +357,7 @@ if st.button("📸 보고용 이미지 생성", type="primary"):
             
             with col2:
                 st.info("✅ 텍스트 요약")
-                st.text_area("복사하기", value=text_report, height=200)
+                st.text_area("복사하기", value=text_report, height=600)
                 
         except Exception as e:
             st.error(f"❌ 오류 발생: {e}")
